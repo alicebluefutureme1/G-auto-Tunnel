@@ -1,0 +1,53 @@
+name: Auto Start G2ray Codespace
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
+
+jobs:
+  start-codespace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manage Codespace
+        env:
+          GH_TOKEN: ${{ secrets.CODESPACE_TOKEN }}
+        run: |
+          echo "🔍 Checking existing codespaces..."
+          CS_NAME=$(gh codespace list \
+            --repo ${{ github.repository }} \
+            --json name,state \
+            --jq '.[] | select(.state != "Deleted") | .name' \
+            2>/dev/null | head -1)
+
+          if [ -z "$CS_NAME" ]; then
+            echo "🆕 No codespace found. Creating a new one..."
+            gh codespace create \
+              --repo ${{ github.repository }} \
+              --machine basicLinux32gb \
+              --display-name "g2ray-auto" \
+              --idle-timeout 30m
+            echo "✅ Codespace created."
+          else
+            CS_STATE=$(gh codespace list \
+              --repo ${{ github.repository }} \
+              --json name,state \
+              --jq ".[] | select(.name == \"$CS_NAME\") | .state")
+            echo "📦 Found: $CS_NAME (state: $CS_STATE)"
+
+            if [ "$CS_STATE" = "Shutdown" ] || [ "$CS_STATE" = "Available" ]; then
+              echo "▶️ Starting codespace..."
+              gh codespace start -c "$CS_NAME"
+              echo "✅ Started."
+            elif [ "$CS_STATE" = "Starting" ] || [ "$CS_STATE" = "Running" ]; then
+              echo "✅ Already running."
+            else
+              echo "⚠️ State: $CS_STATE — recreating..."
+              gh codespace delete -c "$CS_NAME" --force 2>/dev/null || true
+              gh codespace create \
+                --repo ${{ github.repository }} \
+                --machine basicLinux32gb \
+                --display-name "g2ray-auto" \
+                --idle-timeout 30m
+            fi
+          fi
